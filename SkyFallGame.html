@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkyFall — Free-Fall Gauntlet</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #06040a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    color: #aaa;
+  }
+
+  #ghud {
+    display: flex;
+    justify-content: space-between;
+    width: 460px;
+    max-width: 100%;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: #8888aa;
+  }
+
+  #ghud span b { color: #ddd; font-weight: 500; }
+
+  #gc { position: relative; width: 460px; max-width: 100%; }
+
+  canvas#g {
+    display: block;
+    border: 0.5px solid #2a2a44;
+    border-radius: 12px;
+  }
+
+  #gov {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: 12px;
+    background: rgba(6,4,20,0.88);
+  }
+
+  .gtitle {
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: .18em;
+    color: #d8c8ff;
+  }
+
+  .gsub {
+    font-size: 11px;
+    color: #6655aa;
+    letter-spacing: .1em;
+  }
+
+  .gfin {
+    font-size: 18px;
+    color: #c0aaff;
+  }
+
+  .gzone {
+    font-size: 11px;
+    padding: 3px 12px;
+    border: 0.5px solid #443388;
+    border-radius: 4px;
+    color: #9988cc;
+  }
+
+  #gbtn {
+    padding: 9px 30px;
+    background: transparent;
+    border: 0.5px solid #5544bb;
+    color: #bbaaff;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: .1em;
+    cursor: pointer;
+  }
+
+  #gbtn:hover { background: rgba(85,68,187,.2); }
+
+  .gkeys { display: flex; gap: 8px; margin-top: 2px; }
+
+  .gkey {
+    padding: 3px 9px;
+    border: 0.5px solid #2a2844;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #6655aa;
+  }
+</style>
+</head>
+<body>
+
+<div id="ghud">
+  <span>SCORE <b id="sc">0</b></span>
+  <span id="znm">ZONE 1 — CLEAR SKY</span>
+  <span>LIVES <b id="lv">★★★</b></span>
+</div>
+
+<div id="gc">
+  <canvas id="g" width="460" height="560"></canvas>
+  <div id="gov">
+    <div class="gtitle">SKYFALL</div>
+    <div class="gsub">FREE-FALL GAUNTLET</div>
+    <div class="gfin" id="gfs" style="display:none"></div>
+    <div class="gzone" id="gzb">ZONE 1 — THE CLEAR SKY</div>
+    <button id="gbtn">BEGIN FALL</button>
+    <div class="gsub" style="margin-top:2px">close calls score big</div>
+    <div class="gkeys">
+      <span class="gkey">A / ← left</span>
+      <span class="gkey">D / → right</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const CV = document.getElementById('g');
+const CX = CV.getContext('2d');
+const W = CV.width, H = CV.height;
+const OV = document.getElementById('gov');
+const BTN = document.getElementById('gbtn');
+const SC = document.getElementById('sc');
+const LV = document.getElementById('lv');
+const ZNM = document.getElementById('znm');
+const GFS = document.getElementById('gfs');
+const GZB = document.getElementById('gzb');
+
+/* ── Zone definitions ───────────────────────────────────────────────── */
+const ZONES = [
+  {
+    name: 'ZONE 1 — CLEAR SKY',
+    bg0: '#0d1a3a', bg1: '#1a3060',
+    speed: 2.0, si: 100, gapW: 115,
+    moveObs: false, wind: false, spikes: false
+  },
+  {
+    name: 'ZONE 2 — THE STORM',
+    bg0: '#1a0d30', bg1: '#3a1060',
+    speed: 3.0, si: 72, gapW: 100,
+    moveObs: true, wind: true, spikes: false
+  },
+  {
+    name: 'ZONE 3 — TERMINAL VELOCITY',
+    bg0: '#0a0010', bg1: '#1a0028',
+    speed: 4.2, si: 52, gapW: 82,
+    moveObs: true, wind: true, spikes: true
+  }
+];
+
+/* ── Constants ──────────────────────────────────────────────────────── */
+const PR = 13; // player visual radius
+const HR = 9;  // player hitbox radius
+
+/* ── State ──────────────────────────────────────────────────────────── */
+let state = 'menu';
+let player, obs, particles, birds, windZones;
+let score, lives, elapsed, spawnT, shakeF;
+let keys, touchDir, zone, chunkDist, multip;
+
+/* ── Init ───────────────────────────────────────────────────────────── */
+function init() {
+  player = {
+    x: W / 2, y: H * 0.16,
+    vx: 0,
+    lean: 0,
+    squash: 1, stretch: 1,
+    splat: 0, flair: 0
+  };
+  obs = []; particles = []; birds = []; windZones = [];
+  score = 0; lives = 3; elapsed = 0;
+  spawnT = 0; shakeF = 0; touchDir = 0;
+  zone = 0; chunkDist = 0; multip = 1.0;
+  keys = { l: false, r: false };
+  spawnBirds();
+}
+
+function getZone() { return ZONES[Math.min(zone, ZONES.length - 1)]; }
+
+/* ── Bird spawning (midground parallax layer) ───────────────────────── */
+function spawnBirds() {
+  for (let i = 0; i < 6; i++) {
+    birds.push({
+      x: Math.random() * W,
+      y: Math.random() * H * 0.6,
+      vx: (Math.random() - .5) * 0.6,
+      vy: (Math.random() - .5) * 0.2,
+      wing: 0,
+      ws: 0.08 + Math.random() * 0.04
+    });
+  }
+}
+
+/* ── Obstacle spawning ──────────────────────────────────────────────── */
+function spawnObs() {
+  const z = getZone();
+  const gW = Math.max(80, z.gapW - (elapsed * 0.015));
+  const gX = PR * 2 + Math.random() * (W - gW - PR * 4);
+  const h = 24 + Math.random() * 30;
+  const isMoving = z.moveObs && Math.random() < 0.45;
+  const hasSpikes = z.spikes && Math.random() < 0.4;
+
+  obs.push({
+    lx: 0, lw: gX,
+    rx: gX + gW, rw: W - (gX + gW),
+    y: H + 40, h,
+    speed: z.speed,
+    gX, gW,
+    scored: false, nmDone: false,
+    moving: isMoving,
+    mvDir: Math.random() < .5 ? 1 : -1,
+    mvSpd: 0.8 + Math.random() * 0.6,
+    spikes: hasSpikes
+  });
+}
+
+/* ── Wind zone spawning ─────────────────────────────────────────────── */
+function spawnWindZone() {
+  const z = getZone();
+  if (!z.wind) return;
+  windZones.push({
+    x: 20 + Math.random() * (W - 80),
+    y: H + 60,
+    w: 55 + Math.random() * 50,
+    h: 40 + Math.random() * 30,
+    speed: z.speed,
+    dir: Math.random() < .5 ? 1 : -1,
+    t: 0
+  });
+}
+
+/* ── Particle emitter ───────────────────────────────────────────────── */
+function emit(x, y, col, n = 8) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 1 + Math.random() * 3;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: 1,
+      dec: 0.03 + Math.random() * 0.03,
+      col,
+      r: 1.5 + Math.random() * 2.5
+    });
+  }
+}
+
+/* ── Helpers ────────────────────────────────────────────────────────── */
+function roundRect2(x, y, w, h, r) {
+  CX.beginPath();
+  CX.moveTo(x + r, y);
+  CX.lineTo(x + w - r, y);
+  CX.quadraticCurveTo(x + w, y, x + w, y + r);
+  CX.lineTo(x + w, y + h - r);
+  CX.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  CX.lineTo(x + r, y + h);
+  CX.quadraticCurveTo(x, y + h, x, y + h - r);
+  CX.lineTo(x, y + r);
+  CX.quadraticCurveTo(x, y, x + r, y);
+  CX.closePath();
+}
+
+/* ── Draw: background + stars ───────────────────────────────────────── */
+function drawBg() {
+  const z = getZone();
+  CX.fillStyle = z.bg0;
+  CX.fillRect(0, 0, W, H);
+  for (let i = 0; i < 50; i++) {
+    const y = (elapsed * 0.3 * (i % 3 + 1) + i * 113) % H;
+    const sz = 0.3 + ((i * 7) % 10) * 0.12;
+    CX.globalAlpha = 0.15 + sz * 0.2;
+    CX.fillStyle = '#c0a8ff';
+    CX.beginPath();
+    CX.arc((i * 173) % W, y, sz, 0, Math.PI * 2);
+    CX.fill();
+  }
+  CX.globalAlpha = 1;
+}
+
+/* ── Draw: midground birds ──────────────────────────────────────────── */
+function drawBirds() {
+  birds.forEach(b => {
+    b.x += b.vx;
+    b.y -= 0.4 + getZone().speed * 0.15;
+    b.wing += b.ws;
+    if (b.x < 0) b.x = W;
+    if (b.x > W) b.x = 0;
+    if (b.y < -10) b.y = H + 10;
+    const flap = Math.sin(b.wing) * 5;
+    CX.strokeStyle = 'rgba(160,130,200,0.35)';
+    CX.lineWidth = 0.8;
+    CX.beginPath();
+    CX.moveTo(b.x - 7, b.y + flap);
+    CX.lineTo(b.x, b.y);
+    CX.lineTo(b.x + 7, b.y + flap);
+    CX.stroke();
+  });
+}
+
+/* ── Draw: wind zone ────────────────────────────────────────────────── */
+function drawWindZone(wz) {
+  CX.save();
+  CX.globalAlpha = 0.18 + 0.06 * Math.sin(wz.t * 0.12);
+  CX.fillStyle = wz.dir > 0 ? '#3080ff' : '#30c0ff';
+  roundRect2(wz.x, wz.y - wz.h / 2, wz.w, wz.h, 6);
+  CX.fill();
+  CX.strokeStyle = wz.dir > 0 ? '#5090ff' : '#40d0ff';
+  CX.lineWidth = 0.5;
+  roundRect2(wz.x, wz.y - wz.h / 2, wz.w, wz.h, 6);
+  CX.stroke();
+  CX.globalAlpha = 0.5;
+  CX.fillStyle = wz.dir > 0 ? '#80b0ff' : '#80e0ff';
+  CX.font = '10px monospace';
+  CX.fillText(wz.dir > 0 ? '>> WIND >>' : '<< WIND <<', wz.x + 6, wz.y + 4);
+  CX.restore();
+}
+
+/* ── Draw: obstacle ─────────────────────────────────────────────────── */
+function drawObs(o) {
+  const col1 = '#18104a';
+  const acc = getZone().name.includes('3') ? '#aa33ff' : '#2233cc';
+
+  [{ x: o.lx, w: o.lw }, { x: o.rx, w: o.rw }].forEach(seg => {
+    if (seg.w <= 0) return;
+    CX.fillStyle = col1;
+    roundRect2(seg.x, o.y - o.h / 2, seg.w, o.h, 3);
+    CX.fill();
+    CX.strokeStyle = acc;
+    CX.lineWidth = 0.5;
+    roundRect2(seg.x, o.y - o.h / 2, seg.w, o.h, 3);
+    CX.stroke();
+  });
+
+  // spike triangles on gap edges (Zone 3)
+  if (o.spikes) {
+    CX.fillStyle = '#ff3344';
+    const gapEdgeL = o.lw;
+    const gapEdgeR = o.rx;
+    [[gapEdgeL - 18, gapEdgeL], [gapEdgeR, gapEdgeR + 18]].forEach(([sx, ex]) => {
+      for (let tx = sx; tx < ex - 6; tx += 8) {
+        CX.beginPath();
+        CX.moveTo(tx, o.y - o.h / 2);
+        CX.lineTo(tx + 4, o.y - o.h / 2 - 7);
+        CX.lineTo(tx + 8, o.y - o.h / 2);
+        CX.closePath();
+        CX.fill();
+      }
+    });
+  }
+
+  // movement indicator dashes on sliding obstacles
+  if (o.moving) {
+    CX.strokeStyle = 'rgba(100,180,255,0.4)';
+    CX.lineWidth = 0.5;
+    CX.setLineDash([4, 4]);
+    CX.beginPath();
+    CX.moveTo(o.gX + o.gW / 2, o.y - o.h / 2 - 3);
+    CX.lineTo(o.gX + o.gW / 2, o.y + o.h / 2 + 3);
+    CX.stroke();
+    CX.setLineDash([]);
+  }
+}
+
+/* ── Draw: stickman (squash/stretch, lean tilt, flail, scarf) ───────── */
+function drawStickman(px, py, lean, sq, st, splat, flair) {
+  CX.save();
+  CX.translate(px, py);
+  CX.rotate(lean * 0.4);                        // body tilt on lean
+  CX.scale(1 / Math.max(0.5, sq), sq);          // squash & stretch
+
+  // head
+  CX.strokeStyle = '#e8d8ff';
+  CX.lineWidth = 1.5;
+  CX.lineCap = 'round';
+  CX.beginPath();
+  CX.arc(0, -PR - 4, PR * 0.72, 0, Math.PI * 2);
+  CX.stroke();
+  CX.fillStyle = 'rgba(180,140,255,0.15)';
+  CX.fill();
+
+  // body (vertical stretch with speed)
+  const bodyLen = PR * 1.2 * st;
+  CX.beginPath();
+  CX.moveTo(0, -4);
+  CX.lineTo(0, bodyLen);
+  CX.stroke();
+
+  if (splat > 0) {
+    // splat pose — limbs flung wide on wall impact
+    CX.beginPath(); CX.moveTo(0, 2); CX.lineTo(-PR * 1.8 * splat,  PR * 0.5); CX.stroke();
+    CX.beginPath(); CX.moveTo(0, 2); CX.lineTo( PR * 1.8 * splat,  PR * 0.5); CX.stroke();
+    CX.beginPath(); CX.moveTo(0, bodyLen); CX.lineTo(-PR * 1.4 * splat, bodyLen + PR * 0.8); CX.stroke();
+    CX.beginPath(); CX.moveTo(0, bodyLen); CX.lineTo( PR * 1.4 * splat, bodyLen + PR * 0.8); CX.stroke();
+  } else {
+    // flailing idle — arms and legs swing via sine wave
+    const armSwing = Math.sin(elapsed * 0.18 + lean) * PR * 1.1 + lean * PR * 0.8;
+    CX.beginPath(); CX.moveTo(0, 2); CX.lineTo(-PR * 1.1 + armSwing,  PR * 0.9 + Math.cos(elapsed * 0.14) * 3); CX.stroke();
+    CX.beginPath(); CX.moveTo(0, 2); CX.lineTo( PR * 1.1 + armSwing,  PR * 0.9 - Math.cos(elapsed * 0.14) * 3); CX.stroke();
+    const legSwing = Math.sin(elapsed * 0.14) * PR * 0.9;
+    CX.beginPath(); CX.moveTo(0, bodyLen); CX.lineTo(-PR * 0.8 + legSwing + lean * 4, bodyLen + PR * 1.1); CX.stroke();
+    CX.beginPath(); CX.moveTo(0, bodyLen); CX.lineTo( PR * 0.8 - legSwing + lean * 4, bodyLen + PR * 1.1); CX.stroke();
+  }
+
+  // scarf streaming upward — intensity scales with zone speed
+  CX.strokeStyle = 'rgba(200,120,255,0.7)';
+  CX.lineWidth = 1.2;
+  CX.beginPath();
+  CX.moveTo(0, -PR * 1.7 - 4);
+  CX.quadraticCurveTo(
+    flair * 7,  -PR * 2 - 4 - flair * 5,
+    flair * 10 + lean * 5, -PR * 1.3 - 4 - flair * 7
+  );
+  CX.stroke();
+  CX.restore();
+}
+
+/* ── Physics update ─────────────────────────────────────────────────── */
+function update() {
+  elapsed++;
+  const z = getZone();
+
+  // chunk system — every 2000px of fall triggers next zone
+  chunkDist += z.speed;
+  if (chunkDist > 2000) {
+    chunkDist = 0;
+    zone = Math.min(zone + 1, ZONES.length - 1);
+    updateZoneUI();
+  }
+
+  // near-miss multiplier decays over time
+  multip = Math.max(1, multip - 0.004);
+
+  // player horizontal movement with inertia
+  const dir = (keys.l ? -1 : 0) + (keys.r ? 1 : 0) + touchDir;
+  player.vx += dir * 0.4;
+  player.vx *= 0.86;              // friction simulates air resistance
+  player.x  += player.vx;
+  player.x   = Math.max(PR, Math.min(W - PR, player.x)); // screen clamp
+
+  // lean interpolates smoothly toward input direction
+  player.lean += (dir - player.lean) * 0.18;
+
+  // squash & stretch driven by horizontal speed
+  const speed = Math.abs(player.vx);
+  player.stretch = Math.min(1.25, 1 + speed * 0.04);
+  player.squash  = Math.max(0.75, 1 - speed * 0.03);
+
+  // splat effect decays after wall impact
+  if (player.splat > 0) player.splat = Math.max(0, player.splat - 0.06);
+
+  // scarf flair driven by zone speed
+  player.flair = z.speed / 4.2;
+
+  // spawn obstacles and wind zones on interval
+  spawnT++;
+  if (spawnT >= z.si) {
+    spawnT = 0;
+    spawnObs();
+    if (z.wind && Math.random() < 0.3) spawnWindZone();
+  }
+
+  // scroll obstacles upward; sliding ones bounce horizontally
+  obs.forEach(o => {
+    o.y -= o.speed;
+    if (o.moving) {
+      o.gX += o.mvDir * o.mvSpd;
+      if (o.gX < 0 || o.gX + o.gW > W) o.mvDir *= -1;
+      o.lw = o.gX;
+      o.rx = o.gX + o.gW;
+      o.rw = W - (o.gX + o.gW);
+    }
+  });
+  obs = obs.filter(o => o.y > -80);
+
+  // scroll wind zones upward
+  windZones.forEach(wz => { wz.y -= wz.speed; wz.t++; });
+  windZones = windZones.filter(wz => wz.y > -80);
+
+  // update particles
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.06;
+    p.life -= p.dec;
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  if (state === 'play') checkColl();
+
+  // continuous score = time × zone speed
+  score += Math.round(z.speed * 0.06);
+  SC.textContent = score;
+
+  if (shakeF > 0) shakeF--;
+}
+
+/* ── Collision detection ────────────────────────────────────────────── */
+function checkColl() {
+  const px = player.x, py = player.y;
+
+  for (let o of obs) {
+    // broad phase: skip if vertically out of range
+    if (py + HR < o.y - o.h / 2 || py - HR > o.y + o.h / 2) continue;
+
+    // hard collision with wall segments
+    const inL = px - HR < o.lw;
+    const inR = px + HR > o.rx;
+    if (inL || inR) {
+      lives--;
+      LV.textContent = '★'.repeat(Math.max(0, lives)) + '☆'.repeat(Math.max(0, 3 - lives));
+      shakeF = 20;
+      player.splat = 1;
+      player.vx *= -0.7;   // bounce back from wall
+      emit(px, py, 'rgba(255,80,80,.9)', 14);
+      o.y = -9999;          // remove hit obstacle
+      if (lives <= 0) { state = 'dead'; showOver(); }
+      return;
+    }
+
+    // score awarded on clean pass-through
+    if (!o.scored && py > o.y + o.h / 2) {
+      o.scored = true;
+      score += Math.round(getZone().speed * 12);
+    }
+
+    // near-miss bonus: within 28px of either wall edge
+    if (!o.nmDone) {
+      const dL = px - HR - o.lw;
+      const dR = o.rx - (px + HR);
+      const minDist = Math.min(dL, dR);
+      if (minDist >= 0 && minDist < 28 && py > o.y - o.h / 2 && py < o.y + o.h / 2) {
+        o.nmDone = true;
+        multip = Math.min(multip + 0.6, 5);
+        score += Math.round(60 * multip);
+        emit(px, py, 'rgba(80,255,180,.9)', 7);
+      }
+    }
+  }
+
+  // wind zone pushes player horizontally
+  windZones.forEach(wz => {
+    if (Math.abs(py - wz.y) < wz.h / 2 && px > wz.x && px < wz.x + wz.w) {
+      player.vx += wz.dir * 0.9;
+    }
+  });
+}
+
+/* ── Render frame ───────────────────────────────────────────────────── */
+function draw() {
+  CX.save();
+
+  // screen shake on hit
+  if (shakeF > 0) {
+    const s = shakeF > 12 ? 4 : 2;
+    CX.translate((Math.random() - .5) * s, (Math.random() - .5) * s);
+  }
+
+  drawBg();             // background layer (sky + stars)
+  drawBirds();          // midground parallax layer
+  windZones.forEach(drawWindZone);
+  obs.forEach(drawObs);
+
+  // particles
+  particles.forEach(p => {
+    CX.save();
+    CX.globalAlpha = p.life;
+    CX.fillStyle = p.col;
+    CX.beginPath();
+    CX.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    CX.fill();
+    CX.restore();
+  });
+
+  // foreground: stickman
+  drawStickman(player.x, player.y, player.lean, player.squash, player.stretch, player.splat, player.flair);
+
+  CX.restore();
+}
+
+/* ── UI helpers ─────────────────────────────────────────────────────── */
+function updateZoneUI() {
+  const z = getZone();
+  ZNM.textContent = z.name;
+  GZB.textContent = z.name;
+}
+
+function showOver() {
+  OV.style.display = 'flex';
+  GFS.style.display = 'block';
+  GFS.textContent = 'FINAL SCORE: ' + score;
+  BTN.textContent = 'FALL AGAIN';
+  GZB.textContent = getZone().name;
+}
+
+/* ── Game loop ──────────────────────────────────────────────────────── */
+(function loop() {
+  if (state === 'play') update();
+  draw();
+  requestAnimationFrame(loop);
+})();
+
+/* ── Button ─────────────────────────────────────────────────────────── */
+BTN.addEventListener('click', () => {
+  init();
+  state = 'play';
+  OV.style.display = 'none';
+  GFS.style.display = 'none';
+  updateZoneUI();
+});
+
+/* ── Keyboard input ─────────────────────────────────────────────────── */
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.l = true;
+  if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.r = true;
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.l = false;
+  if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.r = false;
+});
+
+/* ── Touch input ────────────────────────────────────────────────────── */
+CV.addEventListener('touchstart', e => {
+  const rect = CV.getBoundingClientRect();
+  touchDir = e.touches[0].clientX - rect.left < W / 2 ? -1 : 1;
+  e.preventDefault();
+}, { passive: false });
+CV.addEventListener('touchend', () => { touchDir = 0; });
+</script>
+</body>
+</html>

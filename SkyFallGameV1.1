@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SkyFall — Free-Fall Gauntlet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@800;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+
+        body {
+            background: #1a0f08;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Fredoka One', cursive, sans-serif;
+            color: #c8a96e;
+            overflow: hidden;
+        }
+
+        #ghud {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 95%;
+            max-width: 460px;
+            margin-bottom: 8px;
+            font-size: 15px;
+            color: #8b6340;
+            letter-spacing: 0.04em;
+        }
+
+        #ghud span b {
+            color: #f0c040;
+            -webkit-text-stroke: 1px #7a5010;
+            text-shadow: 2px 2px 0px #5a3a08;
+        }
+
+        #gc { 
+            position: relative; 
+            width: 95%; 
+            max-width: 460px; 
+        }
+
+        canvas#g {
+            display: block;
+            width: 100%;
+            height: auto;
+            border: 4px solid #5a3a10;
+            border-radius: 16px;
+            outline: 2px solid #3a2008;
+            background: #1a0f08;
+        }
+
+        #gov {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            border-radius: 12px;
+            background: rgba(15,8,2,0.87);
+            z-index: 10;
+        }
+
+        .gtitle {
+            font-size: 52px;
+            color: #f0c040;
+            -webkit-text-stroke: 3px #7a5010;
+            text-shadow: 4px 4px 0px #3a2008, 0px 0px 20px rgba(80,180,40,0.4);
+            letter-spacing: 0.08em;
+            line-height: 1;
+        }
+
+        .gsub {
+            font-size: 13px;
+            color: #6daa30;
+            letter-spacing: 0.12em;
+            text-align: center;
+        }
+
+        .gfin {
+            font-size: 22px;
+            color: #f0c040;
+            -webkit-text-stroke: 1.5px #7a5010;
+            text-shadow: 2px 2px 0px #3a2008;
+        }
+
+        .gzone {
+            font-size: 13px;
+            padding: 5px 16px;
+            background: rgba(50,25,5,0.8);
+            border: 2px solid #5a8820;
+            border-radius: 20px;
+            color: #aadd50;
+            letter-spacing: 0.06em;
+        }
+
+        #gbtn {
+            padding: 12px 36px;
+            background: #3a8820;
+            border: 3px solid #6abb30;
+            border-bottom: 5px solid #225510;
+            color: #ffffff;
+            border-radius: 24px;
+            font-family: 'Fredoka One', cursive;
+            font-size: 20px;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            text-shadow: 1px 1px 0px #1a4408;
+            transition: transform 0.08s;
+        }
+
+        #gbtn:active { transform: translateY(3px); }
+
+        .gkeys { display: flex; gap: 8px; margin-top: 2px; }
+        .gkey { padding: 4px 11px; background: rgba(40,20,5,0.7); border: 1.5px solid #4a6820; border-radius: 8px; font-size: 11px; color: #88bb40; }
+    </style>
+</head>
+<body>
+
+<div id="ghud">
+    <span>SCORE <b id="sc">0</b></span>
+    <span id="znm">ZONE 1</span>
+    <span>LIVES <b id="lv">★★★</b></span>
+</div>
+
+<div id="gc">
+    <canvas id="g" width="460" height="560"></canvas>
+    <div id="gov">
+        <div class="gtitle">SKYFALL</div>
+        <div class="gsub">FREE-FALL GAUNTLET</div>
+        <div id="gfs" class="gfin" style="display:none"></div>
+        <div class="gzone" id="gzb">ZONE 1 — THE OPEN SKY</div>
+        <button id="gbtn">PLAY NOW!</button>
+        <div class="gsub" style="margin-top:2px">close calls score big!</div>
+        <div class="gkeys">
+            <span class="gkey">A / ← left</span>
+            <span class="gkey">D / → right</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CV = document.getElementById('g');
+    const CX = CV.getContext('2d');
+    const W = CV.width, H = CV.height;
+    const OV = document.getElementById('gov'), BTN = document.getElementById('gbtn');
+    const SC = document.getElementById('sc'), LV = document.getElementById('lv'), ZNM = document.getElementById('znm');
+    const GFS = document.getElementById('gfs'), GZB = document.getElementById('gzb');
+
+    const ZONES = [
+        { name:'ZONE 1 — OPEN SKY', bg0:'#1a3a10', speed:2.0, si:100, gapW:115, moveObs:false, wind:false },
+        { name:'ZONE 2 — THE CANOPY', bg0:'#2a1a08', speed:3.0, si:72, gapW:100, moveObs:true, wind:true },
+        { name:'ZONE 3 — TERMINAL VELOCITY', bg0:'#0a0f04', speed:4.2, si:52, gapW:82, moveObs:true, wind:true }
+    ];
+
+    const PR = 13, HR = 9;
+    let state = 'menu', player, obs, particles, birds, windZones;
+    let score, lives, elapsed, spawnT, shakeF, keys, touchDir, zone, chunkDist;
+
+    function init() {
+        player = { x:W/2, y:H*0.16, vx:0, lean:0, squash:1, stretch:1, splat:0, flair:0 };
+        obs=[]; particles=[]; birds=[]; windZones=[];
+        score=0; lives=3; elapsed=0; spawnT=0; shakeF=0; touchDir=0; zone=0; chunkDist=0;
+        keys={l:false,r:false};
+        for(let i=0;i<6;i++) birds.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*0.6,wing:0,ws:0.08+Math.random()*0.04});
+    }
+
+    function getZone(){ return ZONES[Math.min(zone, ZONES.length-1)]; }
+
+    function spawnObs(){
+        const z=getZone();
+        const gW=z.gapW;
+        const gX=PR*2+Math.random()*(W-gW-PR*4);
+        obs.push({lx:0,lw:gX,rx:gX+gW,rw:W-(gX+gW),y:H+40,h:30,speed:z.speed,gX,gW,moving:z.moveObs&&Math.random()<0.4});
+    }
+
+    function rr(x,y,w,h,r){
+        CX.beginPath();CX.moveTo(x+r,y);CX.lineTo(x+w-r,y);CX.quadraticCurveTo(x+w,y,x+w,y+r);
+        CX.lineTo(x+w,y+h-r);CX.quadraticCurveTo(x+w,y+h,x+w-r,y+h);CX.lineTo(x+r,y+h);
+        CX.quadraticCurveTo(x,y+h,x,y+h-r);CX.lineTo(x,y+r);CX.quadraticCurveTo(x,y,x+r,y);CX.closePath();
+    }
+
+    function drawBg(){
+        CX.fillStyle=getZone().bg0; CX.fillRect(0,0,W,H);
+        CX.globalAlpha=0.1; CX.fillStyle='#88cc40';
+        for(let i=0;i<20;i++) CX.fillRect((i*50+elapsed)%W, (i*80)%H, 2, 20);
+        CX.globalAlpha=1;
+    }
+
+    function drawStickman(p){
+        CX.save(); CX.translate(p.x, p.y); CX.rotate(p.lean*0.3);
+        CX.strokeStyle='#2a6008'; CX.lineWidth=3;
+        CX.beginPath(); CX.arc(0,-PR,PR*0.7,0,Math.PI*2); CX.stroke(); // Head
+        CX.beginPath(); CX.moveTo(0,-PR*0.3); CX.lineTo(0,PR); CX.stroke(); // Body
+        CX.restore();
+    }
+
+    function update(){
+        elapsed++; const z=getZone(); chunkDist+=z.speed;
+        if(chunkDist>2000){chunkDist=0; zone++; if(zone<ZONES.length) updateZoneUI();}
+        const dir=(keys.l?-1:0)+(keys.r?1:0)+touchDir;
+        player.vx+=dir*0.5; player.vx*=0.85; player.x+=player.vx;
+        player.x=Math.max(PR, Math.min(W-PR, player.x));
+        player.lean+=(dir-player.lean)*0.1;
+        spawnT++; if(spawnT>z.si){spawnT=0; spawnObs();}
+        obs.forEach(o=>o.y-=o.speed);
+        obs=obs.filter(o=>o.y>-50);
+        checkColl();
+        score++; SC.textContent=score;
+    }
+
+    function checkColl(){
+        obs.forEach(o=>{
+            if(Math.abs(player.y-o.y)<20 && (player.x < o.lw || player.x > o.rx)){
+                lives--; LV.textContent='★'.repeat(lives); o.y=-100;
+                if(lives<=0){state='dead'; showOver();}
+            }
+        });
+    }
+
+    function draw(){
+        drawBg();
+        obs.forEach(o=>{
+            CX.fillStyle='#5a2f0a'; rr(o.lx, o.y-15, o.lw, 30, 5); CX.fill();
+            rr(o.rx, o.y-15, o.rw, 30, 5); CX.fill();
+        });
+        drawStickman(player);
+    }
+
+    function updateZoneUI(){ ZNM.textContent=getZone().name.split('—')[0]; GZB.textContent=getZone().name; }
+    function showOver(){ OV.style.display='flex'; GFS.style.display='block'; GFS.textContent='SCORE: '+score; }
+
+    init(); // Initial load to prevent 'bg0' error
+    (function loop(){ if(state==='play') update(); draw(); requestAnimationFrame(loop); })();
+
+    BTN.addEventListener('click',()=>{ init(); state='play'; OV.style.display='none'; });
+    window.addEventListener('keydown',e=>{ if(e.key==='a')keys.l=true; if(e.key==='d')keys.r=true; });
+    window.addEventListener('keyup',e=>{ if(e.key==='a')keys.l=false; if(e.key==='d')keys.r=false; });
+    CV.addEventListener('touchstart',e=>{
+        const rect=CV.getBoundingClientRect();
+        touchDir=(e.touches[0].clientX - rect.left < rect.width/2)?-1:1;
+    },{passive:false});
+    CV.addEventListener('touchend',()=>{touchDir=0;});
+</script>
+</body>
+</html>

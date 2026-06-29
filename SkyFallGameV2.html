@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SkyFall — Meru Games</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+        body { background: #0a0a0a; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Fredoka One', cursive; color: #c8a96e; overflow: hidden; }
+        #ghud { display: flex; justify-content: space-between; align-items: center; width: 95%; max-width: 460px; margin-bottom: 8px; font-size: 15px; color: #8b6340; }
+        #gc { position: relative; width: 95%; max-width: 460px; }
+        canvas#g { display: block; width: 100%; height: auto; border: 4px solid #333; border-radius: 16px; background: #000; }
+        
+        /* Meru Games Logo */
+        #meru-logo { position: absolute; top: 15px; left: 15px; width: 60px; height: 60px; border-radius: 8px; border: 2px solid #6abb30; z-index: 15; }
+
+        #gov { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,0.8); z-index: 10; }
+        .gtitle { font-size: 52px; color: #f0c040; -webkit-text-stroke: 2px #7a5010; text-shadow: 4px 4px 0px #3a2008; }
+        #gbtn { padding: 12px 36px; background: #3a8820; border: 3px solid #6abb30; color: #fff; border-radius: 24px; font-size: 20px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div id="ghud">
+    <span>SCORE <b id="sc">0</b></span>
+    <span id="znm">ZONE 1</span>
+    <span>LIVES <b id="lv">★★★</b></span>
+</div>
+
+<div id="gc">
+    <img src="Assets/images/MeruGamesLogoSkyFall2.png" id="meru-logo" alt="Meru Games">
+    <canvas id="g" width="460" height="560"></canvas>
+    <div id="gov">
+        <div class="gtitle">SKYFALL</div>
+        <div id="gfs" style="color:#f0c040; font-size: 22px; display:none; margin-bottom:10px;"></div>
+        <button id="gbtn">START DIVE</button>
+    </div>
+</div>
+
+<script>
+    const CV = document.getElementById('g'), CX = CV.getContext('2d');
+    const W = CV.width, H = CV.height;
+    const OV = document.getElementById('gov'), BTN = document.getElementById('gbtn'), SC = document.getElementById('sc'), LV = document.getElementById('lv'), ZNM = document.getElementById('znm'), GFS = document.getElementById('gfs');
+
+    let state = 'menu', player, obs, vortexes, lines, score, lives, elapsed, zone, keys, shake = 0;
+
+    function init() {
+        player = { x:W/2, y:H*0.25, vx:0, speedMult:1, legSwing:0, width:1, height:1 };
+        obs = []; vortexes = []; lines = []; score = 0; lives = 3; elapsed = 0; zone = 0; shake = 0;
+        keys = { a:false, d:false, w:false, s:false };
+        LV.textContent = '★★★';
+        // Pre-fill background speed lines
+        for(let i=0; i<30; i++) lines.push({x: Math.random()*W, y: Math.random()*H, len: 20+Math.random()*40});
+    }
+
+    function drawDiver(p) {
+        CX.save();
+        CX.translate(p.x, p.y);
+        
+        // Dynamic Shape: Stretch when fast (S), Squash when slow (W)
+        let targetW = keys.w ? 1.4 : (keys.s ? 0.7 : 1);
+        let targetH = keys.w ? 0.7 : (keys.s ? 1.5 : 1);
+        p.width += (targetW - p.width) * 0.1;
+        p.height += (targetH - p.height) * 0.1;
+        
+        CX.scale(p.width, p.height);
+        CX.rotate(p.vx * 0.05);
+        CX.strokeStyle = '#fff'; CX.lineWidth = 3; CX.lineCap = 'round';
+
+        // Head (Facing down)
+        CX.beginPath(); CX.arc(0, 15, 6, 0, Math.PI*2); CX.stroke();
+        // Torso
+        CX.beginPath(); CX.moveTo(0, 10); CX.lineTo(0, -10); CX.stroke();
+        // Arms
+        CX.beginPath(); CX.moveTo(-15, -2); CX.lineTo(0, 5); CX.lineTo(15, -2); CX.stroke();
+        // Kicking Legs
+        let kick = Math.sin(p.legSwing) * 12;
+        CX.beginPath(); CX.moveTo(0, -10); CX.lineTo(-6, -25 + kick); CX.stroke();
+        CX.beginPath(); CX.moveTo(0, -10); CX.lineTo(6, -25 - kick); CX.stroke();
+        CX.restore();
+    }
+
+    function update() {
+        elapsed++;
+        if (shake > 0) shake -= 0.5;
+
+        player.speedMult = keys.w ? 0.5 : (keys.s ? 2.5 : 1.2);
+        let moveSpeed = (3 + zone) * player.speedMult;
+
+        // Movement
+        if (keys.a) player.vx -= 0.8;
+        if (keys.d) player.vx += 0.8;
+        player.vx *= 0.88;
+        player.x += player.vx;
+        player.x = Math.max(25, Math.min(W-25, player.x));
+        player.legSwing += 0.15 * player.speedMult;
+
+        // Update Background Lines (Falling effect)
+        lines.forEach(l => {
+            l.y -= moveSpeed * 2;
+            if (l.y < -50) { l.y = H + 50; l.x = Math.random()*W; }
+        });
+
+        // Spawn/Update Obstacles
+        if (elapsed % Math.floor(60/player.speedMult) === 0) {
+            obs.push({ x: Math.random()*W, y: H+50, r: 15 + Math.random()*25 });
+        }
+        obs.forEach(o => {
+            o.y -= moveSpeed;
+            if (Math.hypot(player.x - o.x, player.y - o.y) < o.r + 10) {
+                lives--; shake = 10; // Trigger Camera Shake
+                LV.textContent = '★'.repeat(lives); o.y = -200;
+                if (lives <= 0) { state = 'over'; showOver(); }
+            }
+        });
+
+        // Vortex Logic
+        if (elapsed % 180 === 0) vortexes.push({ x: Math.random()*W, y: H+50, r: 45 });
+        vortexes.forEach(v => {
+            v.y -= moveSpeed;
+            if (Math.hypot(player.x - v.x, player.y - v.y) < v.r) {
+                player.vx = (player.x < v.x ? -15 : 15); // Violent redirection
+                shake = 5;
+                v.y = -200;
+            }
+        });
+
+        score += Math.round(player.speedMult);
+        SC.textContent = score;
+    }
+
+    function draw() {
+        CX.save();
+        // Apply Camera Shake
+        if (shake > 0) {
+            CX.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+        }
+
+        // Space/Sky Gradient
+        let grad = CX.createLinearGradient(0,0,0,H);
+        grad.addColorStop(0, '#050505'); grad.addColorStop(1, '#1a0f08');
+        CX.fillStyle = grad; CX.fillRect(0,0,W,H);
+
+        // Falling Lines
+        CX.strokeStyle = 'rgba(255,255,255,0.2)'; CX.lineWidth = 1;
+        lines.forEach(l => {
+            CX.beginPath(); CX.moveTo(l.x, l.y); CX.lineTo(l.x, l.y + l.len); CX.stroke();
+        });
+
+        // Boulders
+        CX.fillStyle = '#444';
+        obs.forEach(o => {
+            CX.beginPath(); CX.arc(o.x, o.y, o.r, 0, Math.PI*2); CX.fill();
+            CX.strokeStyle = '#222'; CX.stroke();
+        });
+
+        // Vortexes
+        vortexes.forEach(v => {
+            CX.strokeStyle = '#0ff'; CX.lineWidth = 2;
+            CX.beginPath(); CX.arc(v.x, v.y, v.r * (0.5 + Math.sin(elapsed*0.2)*0.5), 0, Math.PI*2); CX.stroke();
+        });
+
+        drawDiver(player);
+        CX.restore();
+    }
+
+    function showOver() { OV.style.display='flex'; GFS.style.display='block'; GFS.textContent='SCORE: '+score; }
+
+    init();
+    (function loop(){ if(state==='play') update(); draw(); requestAnimationFrame(loop); })();
+
+    BTN.addEventListener('click', () => { init(); state='play'; OV.style.display='none'; });
+    window.addEventListener('keydown', e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+</script>
+</body>
+</html>
