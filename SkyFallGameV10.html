@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SkyFall: Precision Drop — Meru Games</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+        body { background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Fredoka One', cursive; color: #fff; overflow: hidden; }
+
+        #ghud {
+            display: flex; justify-content: space-between; align-items: center;
+            width: 95%; max-width: 460px; margin-bottom: 8px;
+            font-size: 13px; text-shadow: 2px 2px 4px #000; z-index: 20;
+        }
+        #ghud span { background: rgba(0,0,0,0.45); border: 2px solid #444; border-radius: 10px; padding: 4px 10px; }
+
+        #gc { position: relative; width: 95%; max-width: 460px; }
+        canvas#g { display: block; width: 100%; height: auto; border: 3px solid #444; border-radius: 20px; background: #000; }
+
+        #race-panel {
+            position: absolute; top: 15px; right: 15px;
+            background: rgba(0,0,0,0.6); border: 2px solid #555;
+            border-radius: 10px; padding: 6px 10px;
+            font-size: 11px; z-index: 15; min-width: 100px;
+            display: none;
+        }
+        #race-panel .rp-title { color: #f0c040; font-size: 10px; margin-bottom: 3px; border-bottom: 1px solid #444; }
+        #target-rank-display { color: #00ffff; font-weight: bold; margin-bottom: 5px; font-size: 12px; }
+        .rp-entry { margin: 2px 0; display: flex; justify-content: space-between; }
+
+        #gov {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.88); z-index: 30; border-radius: 18px;
+        }
+        .gtitle { font-size: 52px; color: #f0c040; -webkit-text-stroke: 2px #7a5010; margin-bottom: 8px; }
+        #gbtn {
+            padding: 14px 40px; background: #3a8820;
+            border: none; border-bottom: 4px solid #225510;
+            color: #fff; border-radius: 30px; font-size: 22px;
+            cursor: pointer; font-family: 'Fredoka One', cursive;
+        }
+        .stat-val { color: #f0c040; }
+        select, .sel-btn {
+            font-family: 'Fredoka One', cursive; font-size: 15px; border-radius: 8px;
+            background: #1a1a2e; color: #fff; border: 2px solid #555; padding: 5px 10px; cursor: pointer;
+        }
+        .sel-btn { padding: 10px 18px; margin: 5px; }
+
+        #touch-ctrl {
+            display: none; position: absolute; bottom: 15px; left: 0; width: 100%;
+            justify-content: space-between; padding: 0 20px; z-index: 20;
+        }
+        .tc-btn {
+            width: 60px; height: 60px; border-radius: 50%;
+            background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.3);
+            font-size: 20px; color: #fff; display: flex; align-items: center; justify-content: center;
+        }
+        @media (pointer: coarse) { #touch-ctrl { display: flex; } }
+    </style>
+</head>
+<body>
+
+<div id="ghud">
+    <span>ALT: <b id="alt" class="stat-val">100</b>km</span>
+    <span>VELOCITY: <b id="vel-pct" class="stat-val">100%</b></span>
+    <span>⬤ COINS: <b id="cn" class="stat-val">0</b></span>
+</div>
+
+<div id="gc">
+    <div id="race-panel">
+        <div id="target-rank-display">GOAL: --</div>
+        <div class="rp-title">LIVE STANDINGS</div>
+        <div id="rp-list"></div>
+    </div>
+
+    <canvas id="g" width="460" height="600"></canvas>
+
+    <div id="touch-ctrl">
+        <div class="tc-btn" id="tc-left">◀</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+            <div class="tc-btn" id="tc-up">▲</div>
+            <div class="tc-btn" id="tc-down">▼</div>
+        </div>
+        <div class="tc-btn" id="tc-right">▶</div>
+    </div>
+
+    <div id="gov">
+        <div id="msg-box" style="text-align:center; padding: 20px;">
+            <div class="gtitle">SKYFALL</div>
+            <div id="gfs" style="color:#fff; font-size: 17px; margin-bottom:18px;"></div>
+            <button id="gbtn">BEGIN RE-ENTRY</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const CV = document.getElementById('g'), CX = CV.getContext('2d');
+const W = CV.width, H = CV.height;
+const OV = document.getElementById('gov'), BTN = document.getElementById('gbtn');
+const ALT = document.getElementById('alt'), VEL = document.getElementById('vel-pct'), CN = document.getElementById('cn'), GFS = document.getElementById('gfs');
+const RPANEL = document.getElementById('race-panel'), RPLIST = document.getElementById('rp-list'), TRD = document.getElementById('target-rank-display');
+
+const CHARS = {
+    'BALANCED': { color: '#ffffff', speed: 1.0, drift: 0.9, info: "Standard", hue: 0 },
+    'TANK':     { color: '#ff5555', speed: 1.4, drift: 0.5, info: "Heavy",    hue: 0 },
+    'GHOST':    { color: '#00ffff', speed: 0.8, drift: 1.5, info: "Agile",   hue: 180 },
+    'DART':     { color: '#ffaa00', speed: 1.3, drift: 1.1, info: "Fast",    hue: 40 }
+};
+
+const AI_NAMES = ['NOVA', 'RAZR', 'FLUX', 'JINX', 'ECHO'];
+let targetRank = 1;
+
+class Diver {
+    constructor(x, y, config, name = 'YOU', isAI = false) {
+        this.x = x; this.y = y; this.config = config; this.name = name; this.isAI = isAI;
+        this.vx = 0; this.vy = 0;
+        this.w = 1; this.h = 1;
+        this.legSwing = 0;
+        this.landed = false;
+        this.speedMult = 1.0;
+        this.stun = 0; // 0 to 1, where 1 is severely slowed
+        
+        if (isAI) {
+            this.ai = {
+                baseFall: config.speed * (0.4 + Math.random() * 0.3), // Nerfed AI speed
+                drift: config.drift * (0.7 + Math.random() * 0.5),
+                personality: Math.random(), // 0 = passive, 1 = aggressive seeker
+                noise: Math.random() * 100,
+                targetRankOffset: 0
+            };
+            this.vy = this.ai.baseFall;
+        }
+    }
+
+    update(targetX, obstacles, pSpeed, currentRank) {
+        if (this.landed) return;
+
+        // Recovery from hits
+        if (this.stun > 0) this.stun -= 0.015;
+        if (this.stun < 0) this.stun = 0;
+        const stunPenalty = (1 - this.stun * 0.7);
+
+        if (this.isAI) {
+            // Dynamic AI speed
+            let dynamicSpeed = this.ai.baseFall + Math.sin(elapsed * 0.01 + this.ai.noise) * 0.2;
+            
+            // Intelligence: If they are above their target rank, they might "slack off"
+            if (currentRank < targetRank && this.ai.personality > 0.5) {
+                dynamicSpeed *= 0.8;
+            }
+
+            this.vy += (dynamicSpeed * stunPenalty - this.vy) * 0.1;
+            this.y += this.vy;
+
+            // Simple AI Steering
+            let steerX = targetX;
+            // If they are trying NOT to win, they steer slightly away
+            if (currentRank < targetRank && this.ai.personality > 0.7) steerX = (this.x > targetX) ? W : 0;
+
+            let diff = steerX - this.x;
+            this.vx += diff * 0.01 * this.ai.drift;
+            this.vx *= 0.85;
+            this.speedMult = this.vy / this.ai.baseFall;
+        } else {
+            // Player
+            let pBase = (keys.w || keys.ArrowUp ? 0.6 : (keys.s || keys.ArrowDown ? 2.5 : 1.2));
+            this.speedMult = pBase * stunPenalty;
+            if (keys.a || keys.ArrowLeft)  this.vx -= this.config.drift;
+            if (keys.d || keys.ArrowRight) this.vx += this.config.drift;
+            this.vx *= 0.86;
+        }
+
+        this.x += this.vx;
+        this.x = Math.max(20, Math.min(W - 20, this.x));
+        this.legSwing += 0.15 * this.speedMult;
+    }
+
+    hit() {
+        this.stun = 1.0;
+        shake = 15;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        if (this.stun > 0.1) {
+            ctx.shadowBlur = 15 * this.stun;
+            ctx.shadowColor = 'red';
+        }
+
+        ctx.strokeStyle = this.config.color; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 15, 7, 0, Math.PI*2); ctx.stroke(); // Head
+        ctx.beginPath(); ctx.moveTo(0, 8); ctx.lineTo(0, -10); ctx.stroke(); // Body
+        ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(15, 0); ctx.stroke(); // Arms
+        let k = Math.sin(this.legSwing) * 8;
+        ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(-7, -22+k); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(7, -22-k); ctx.stroke();
+        
+        ctx.fillStyle = this.config.color;
+        ctx.font = '10px Fredoka One'; ctx.textAlign = 'center';
+        ctx.fillText(this.name, 0, 35);
+        ctx.restore();
+    }
+}
+
+let state = 'menu', player, competitors = [], obs = [], coins = [], lines = [];
+let coinCount, elapsed, altitude, shake, groundY, targetX, targetPulse = 0;
+let keys = {};
+let animId = null;
+
+function setupMenu() {
+    state = 'menu';
+    OV.style.display = 'flex';
+    RPANEL.style.display = 'none';
+    GFS.innerHTML = `
+        <div style="font-size:22px; color:#f0c040; margin-bottom:14px;">SELECT YOUR SUIT</div>
+        <div style="display:flex; flex-wrap:wrap; justify-content:center;">
+        ${Object.keys(CHARS).map(key => `
+            <button class="sel-btn" onclick="startGame('${key}')" 
+                style="background:${CHARS[key].color}22; color:${CHARS[key].color}; border-color:${CHARS[key].color}66;">
+                ${key}
+            </button>
+        `).join('')}
+        </div>
+    `;
+    BTN.style.display = 'none';
+}
+
+function startGame(charKey) {
+    if (animId) cancelAnimationFrame(animId);
+    targetRank = Math.floor(Math.random() * 6) + 1; // Goal: 1st to 6th
+    TRD.textContent = `GOAL: FINISH #${targetRank}`;
+
+    player = new Diver(W / 2, -100, CHARS[charKey], 'YOU', false);
+    competitors = AI_NAMES.map((name, i) => {
+        const suits = Object.keys(CHARS);
+        return new Diver(Math.random() * W, 50 + i * 80, CHARS[suits[i%suits.length]], name, true);
+    });
+
+    obs = []; coins = []; lines = []; coinCount = 0;
+    elapsed = 0; altitude = 100000; shake = 0; groundY = H + 500;
+    targetX = W/2;
+    state = 'play';
+    OV.style.display = 'none';
+    RPANEL.style.display = 'block';
+    for (let i = 0; i < 30; i++) lines.push({ x: Math.random() * W, y: Math.random() * H, s: 5 + Math.random() * 10 });
+    loop();
+}
+
+function update() {
+    if (player.landed) return;
+    elapsed++;
+    if (shake > 0) shake *= 0.8;
+
+    // Move target randomly
+    if (elapsed % 200 === 0) targetX = 50 + Math.random() * (W-100);
+    targetPulse += 0.05;
+
+    // Sorting for rank logic
+    const all = [player, ...competitors].sort((a,b) => Math.abs(a.x - targetX) - Math.abs(b.x - targetX));
+    const pRank = all.findIndex(d => d === player) + 1;
+
+    player.update(targetX, obs, 1, pRank);
+    competitors.forEach(c => {
+        const cRank = all.findIndex(d => d === c) + 1;
+        c.update(targetX, obs, player.speedMult, cRank);
+    });
+
+    altitude -= 15 * player.speedMult;
+    if (altitude <= 0) { 
+        altitude = 0; 
+        groundY -= 8;
+        if (groundY <= player.y + 20) {
+            player.landed = true;
+            setTimeout(() => showOver(pRank), 1000);
+        }
+    }
+
+    // Spawn Obstacles & Vortexes
+    if (elapsed % 25 === 0) {
+        let type = Math.random() > 0.2 ? 'rock' : 'vortex';
+        obs.push({ x: Math.random() * W, y: H + 50, r: 15+Math.random()*15, type });
+    }
+
+    obs.forEach(o => {
+        o.y -= 8 * player.speedMult;
+        // Collision logic for everyone
+        [player, ...competitors].forEach(d => {
+            let dist = Math.hypot(d.x - o.x, d.y - o.y);
+            if (dist < o.r + 10) {
+                if (o.type === 'rock') {
+                    d.hit();
+                    o.y = -500;
+                } else {
+                    // Vortex pull
+                    d.vx += (o.x - d.x) * 0.1;
+                }
+            }
+        });
+    });
+
+    // Cleanup
+    obs = obs.filter(o => o.y > -100);
+    updateHUD(pRank);
+}
+
+function draw() {
+    CX.save();
+    if (shake > 0.1) CX.translate(Math.random()*shake, Math.random()*shake);
+    
+    // Background
+    let bCol = altitude > 50000 ? '#00000a' : '#1a4a8a';
+    CX.fillStyle = bCol; CX.fillRect(0, 0, W, H);
+
+    // Dotted Target Line
+    CX.setLineDash([5, 15]); CX.strokeStyle = 'rgba(0,255,255,0.2)';
+    CX.beginPath(); CX.moveTo(targetX, 0); CX.lineTo(targetX, H); CX.stroke();
+    CX.setLineDash([]);
+
+    // Obstacles
+    obs.forEach(o => {
+        CX.fillStyle = o.type === 'rock' ? '#444' : '#80f';
+        CX.beginPath(); CX.arc(o.x, o.y, o.r, 0, Math.PI*2); CX.fill();
+        if(o.type === 'vortex') {
+            CX.strokeStyle = '#fff'; CX.lineWidth = 2;
+            CX.beginPath(); CX.arc(o.x, o.y, o.r * Math.abs(Math.sin(elapsed*0.1)), 0, Math.PI*2); CX.stroke();
+        }
+    });
+
+    if (altitude < 5000) { CX.fillStyle = '#222'; CX.fillRect(0, groundY, W, H); }
+
+    competitors.forEach(c => c.draw(CX));
+    player.draw(CX);
+    CX.restore();
+}
+
+function updateHUD(rank) {
+    ALT.textContent = Math.floor(altitude/1000);
+    CN.textContent = coinCount;
+    VEL.textContent = Math.round(player.speedMult * 100) + "%";
+    
+    const all = [player, ...competitors].sort((a,b) => Math.abs(a.x - targetX) - Math.abs(b.x - targetX));
+    RPLIST.innerHTML = all.map((d, i) => `
+        <div class="rp-entry" style="color:${d.config.color}">
+            <span>${i+1}. ${d.name}</span>
+            <span>${Math.round(Math.abs(d.x - targetX))}m</span>
+        </div>
+    `).join('');
+}
+
+function showOver(finalRank) {
+    state = 'menu';
+    OV.style.display = 'flex';
+    BTN.style.display = 'block';
+    let success = finalRank === targetRank;
+    GFS.innerHTML = `
+        <div class="gtitle" style="color:${success?'#4f4':'#f44'}">${success?'OBJECTIVE MET':'MISSED TARGET'}</div>
+        <p>Your Rank: #${finalRank} | Goal was: #${targetRank}</p>
+        <p style="font-size:12px; margin-top:10px; color:#aaa">Precision is key in SkyFall.</p>
+    `;
+    BTN.textContent = "TRY ANOTHER DROP";
+}
+
+function loop() {
+    update(); draw();
+    if (state === 'play') animId = requestAnimationFrame(loop);
+}
+
+BTN.addEventListener('click', setupMenu);
+window.addEventListener('keydown', e => { keys[e.key] = true; keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', e => { keys[e.key] = false; keys[e.key.toLowerCase()] = false; });
+
+// Touch
+const bind = (id, k) => {
+    let el = document.getElementById(id);
+    el.ontouchstart = (e) => { e.preventDefault(); keys[k] = true; };
+    el.ontouchend = (e) => { e.preventDefault(); keys[k] = false; };
+};
+bind('tc-left', 'a'); bind('tc-right', 'd'); bind('tc-up', 'w'); bind('tc-down', 's');
+
+setupMenu();
+</script>
+</body>
+</html>
